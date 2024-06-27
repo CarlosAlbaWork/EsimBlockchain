@@ -40,13 +40,23 @@ contract CountryInfoFactory is Ownable {
         numberOfRegisteredAddresses++;
     }
 
-    function createNewCountryInfo(uint16 countryId_) external onlyOwner {
+    /**
+     * uint16 countryNumber_,
+        bool isActive_,
+        address factoryContractAddress_,
+        uint256 decimals_,
+        uint256 feeOnCancel_,
+        uint8 feeOnCancelMultiplier_,
+        address owner
+     */
+
+    function createNewCountryInfo(uint16 countryId_,uint256 decimals_, uint256 feeOnCancel_, uint8 feeOnCancelMultiplier_ ) external onlyOwner {
         if (s_CountryInfoContracts[countryId_] == address(0)) {
             revert CountryInfoFactory__CountryIsRegistered();
         }
 
-        //Hacer lo común de un Factory
-
+        CountryInfo newCountry = new CountryInfo(countryId_, false, address(this), decimals_, feeOnCancel_, feeOnCancelMultiplier_, owner());
+        s_CountryInfoContracts[countryId_] = address(newCountry);
         numberOfCountriesSupported++;
     }
 
@@ -76,6 +86,8 @@ contract CountryInfoFactory is Ownable {
         );
     }
 
+    
+
     function getNumberOfRegisteredAddresses() external view returns (uint256) {
         return numberOfRegisteredAddresses;
     }
@@ -86,6 +98,10 @@ contract CountryInfoFactory is Ownable {
 
     function getYourPhoneInfo() external view returns (PhoneInfo memory phoneInfo) {
         return s_PhoneNumbers[msg.sender];
+    }
+
+    function getPhoneInfoOwnerOnly(address user) external view onlyOwner returns (PhoneInfo memory phoneInfo) {
+        return s_PhoneNumbers[user];
     }
 
     function getCountryInfoAddress(uint16 plan_) external view returns (address phoneInfo) {

@@ -39,6 +39,10 @@ contract CountryInfo is Ownable {
         bytes32 indexed encryptedPhoneNumber, uint16 indexed oldplan, uint16 indexed newplan
     );
 
+    event CountryInfo_ModifyPlan(
+        uint16 indexed oldplan, uint256 indexed newPricePerSecond
+    );
+
     ///////////////////
     // STRUCTS /////////
     ///////////////////
@@ -70,6 +74,12 @@ contract CountryInfo is Ownable {
     /**
      * countryNumber : Number of the country in our external database
      * isActive : Variable that determines if the contract can be used now
+     * factoryContractAddress: Address of the factory contract
+     * transferAddress : address to transfer the fees
+     * decimalsPrecision : Decimals of the fee
+     * feeOnCancel : fee to cancel before starting the plan
+     * feeOnCancelMultiplier : multiplier that says how much more fee is paid to cancel mid-plan
+     * feesCollected : amount of fees collected
      * s_UserPlans : Stores the Plan information for every PhoneNumber
      * s_DataPlans : Stores the price for every Plan
      * @dev Is it possible to store this info(countrynumber, bool isActive) more gas efficiently in a 32 byte slot?
@@ -95,8 +105,9 @@ contract CountryInfo is Ownable {
         address factoryContractAddress_,
         uint256 decimals_,
         uint256 feeOnCancel_,
-        uint8 feeOnCancelMultiplier_
-    ) Ownable(msg.sender) {
+        uint8 feeOnCancelMultiplier_,
+        address owner
+    ) Ownable(owner) {
         countryNumber = countryNumber_;
         factoryContractAddress = factoryContractAddress_;
         decimalsPrecision = decimals_;
@@ -259,7 +270,7 @@ contract CountryInfo is Ownable {
         }
     }
 
-    function cancelPlan(bytes32 encryptedPhoneNumber_, address user_) external {
+    function cancelPlan(bytes32 encryptedPhoneNumber_, address user_) external isContractActive{
         if (msg.sender != factoryContractAddress) {
             revert CountryInfo__SenderMustBeCountryFactory();
         }
@@ -283,6 +294,23 @@ contract CountryInfo is Ownable {
         if (!success) {
             revert CountryInfo__TransferFailed();
         }
+    }
+
+    function endPlanOwner(bytes32 encryptedPhoneNumber_) external onlyOwner{
+        Info memory aux = s_UserPlans[encryptedPhoneNumber_];
+        if (aux.endingTimestamp == 0 || aux.endingTimestamp > block.timestamp) {
+            revert CountryInfo__InvalidEndingTimestamp();
+        }
+        aux.endingTimestamp = 0;
+        feesCollected += aux.amountPaid - aux.extraMoneyPaid;
+        aux.amountPaid = aux.extraMoneyPaid;
+        s_UserPlans[encryptedPhoneNumber_] = aux;
+    }
+
+    function modifyPlan(uint16 plan_, uint256 pricePerSecond_) external onlyOwner {
+        s_DataPlans[plan_] = pricePerSecond_;
+        emit CountryInfo_ModifyPlan(plan_, pricePerSecond_);
+
     }
 
     //////////////
