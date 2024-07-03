@@ -40,22 +40,18 @@ contract CountryInfoFactory is Ownable {
         numberOfRegisteredAddresses++;
     }
 
-    /**
-     * uint16 countryNumber_,
-        bool isActive_,
-        address factoryContractAddress_,
+    function createNewCountryInfo(
+        uint16 countryId_,
         uint256 decimals_,
         uint256 feeOnCancel_,
-        uint8 feeOnCancelMultiplier_,
-        address owner
-     */
-
-    function createNewCountryInfo(uint16 countryId_,uint256 decimals_, uint256 feeOnCancel_, uint8 feeOnCancelMultiplier_ ) external onlyOwner {
-        if (s_CountryInfoContracts[countryId_] == address(0)) {
+        uint8 feeOnCancelMultiplier_
+    ) external onlyOwner {
+        if (s_CountryInfoContracts[countryId_] != address(0)) {
             revert CountryInfoFactory__CountryIsRegistered();
         }
 
-        CountryInfo newCountry = new CountryInfo(countryId_, false, address(this), decimals_, feeOnCancel_, feeOnCancelMultiplier_, owner());
+        CountryInfo newCountry =
+            new CountryInfo(countryId_, false, address(this), decimals_, feeOnCancel_, feeOnCancelMultiplier_, owner());
         s_CountryInfoContracts[countryId_] = address(newCountry);
         numberOfCountriesSupported++;
     }
@@ -69,25 +65,6 @@ contract CountryInfoFactory is Ownable {
         s_PhoneNumbers[msg.sender].countryOfPhoneNumber = countryId_;
     }
 
-    function buyDataPlan(uint256 startingTimestamp_, uint256 endingTimestamp_, uint16 plan_, uint16 countryId_)
-        external
-        payable
-    {
-        bytes32 zero;
-        if (s_PhoneNumbers[msg.sender].encryptedPhoneNumber == zero) {
-            revert CountryInfoFactory__UserNotRegistered();
-        }
-        if (s_CountryInfoContracts[countryId_] == address(0)) {
-            revert CountryInfoFactory__CountryWithThatIdHasNoSupport();
-        }
-        CountryInfo countryContract = CountryInfo(s_CountryInfoContracts[countryId_]);
-        countryContract.buyDataPlan{value: msg.value}(
-            startingTimestamp_, endingTimestamp_, plan_, s_PhoneNumbers[msg.sender].encryptedPhoneNumber
-        );
-    }
-
-    
-
     function getNumberOfRegisteredAddresses() external view returns (uint256) {
         return numberOfRegisteredAddresses;
     }
@@ -96,15 +73,15 @@ contract CountryInfoFactory is Ownable {
         return numberOfCountriesSupported;
     }
 
-    function getYourPhoneInfo() external view returns (PhoneInfo memory phoneInfo) {
-        return s_PhoneNumbers[msg.sender];
+    function getYourPhoneInfo() external view returns (uint16, bytes32) {
+        return (s_PhoneNumbers[msg.sender].countryOfPhoneNumber, s_PhoneNumbers[msg.sender].encryptedPhoneNumber);
     }
 
     function getPhoneInfoOwnerOnly(address user) external view onlyOwner returns (PhoneInfo memory phoneInfo) {
         return s_PhoneNumbers[user];
     }
 
-    function getCountryInfoAddress(uint16 plan_) external view returns (address phoneInfo) {
-        return s_CountryInfoContracts[plan_];
+    function getCountryInfoAddress(uint16 countryID_) external view returns (address phoneInfo) {
+        return s_CountryInfoContracts[countryID_];
     }
 }

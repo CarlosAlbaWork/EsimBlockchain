@@ -10,6 +10,7 @@ contract CountryInfo is Ownable {
     ///////////////////
 
     error CountryInfo__NotEnoughEthSent();
+    error CountryInfo__LengthOfArraysDiffer();
     error CountryInfo__PlanNotAvailable();
     error CountryInfo__SenderMustBeCountryFactory();
     error CountryInfo__NeverBoughtAPlanBefore();
@@ -39,13 +40,22 @@ contract CountryInfo is Ownable {
         bytes32 indexed encryptedPhoneNumber, uint16 indexed oldplan, uint16 indexed newplan
     );
 
-    event CountryInfo_ModifyPlan(
-        uint16 indexed oldplan, uint256 indexed newPricePerSecond
-    );
+    event CountryInfo_ModifyPlan(uint16 indexed oldplan, uint256 indexed newPricePerSecond);
 
     ///////////////////
     // STRUCTS /////////
     ///////////////////
+
+    /**
+     * @dev This Struct contains the info of the current Plan selected by the user
+     * - startingTimestamp : Timestamp where the plan has to start
+     * - endingTimestamp : Timestamp when the plan must end
+     * - planSelected : planInUse
+     * - pricePerSecondOfPlan : Price per second in order to adapt to timestamp metrics (seconds)
+     * - amountPaid : Quantity of ether paid during the current plan
+     * - extraMoneyPaid : extra money inside the contract use to paid extensions, upgrades or new plans
+     * 
+     */
 
     struct Info {
         uint256 startingTimestamp;
@@ -59,6 +69,10 @@ contract CountryInfo is Ownable {
     ///////////////////
     // MODIFIERS /////////
     ///////////////////
+
+    /**
+     * @dev Modifier that allows owners to stop the functionality of a contract in case of problems
+     */
 
     modifier isContractActive() {
         if (!isActive) {
@@ -84,7 +98,6 @@ contract CountryInfo is Ownable {
      * s_DataPlans : Stores the price for every Plan
      * @dev Is it possible to store this info(countrynumber, bool isActive) more gas efficiently in a 32 byte slot?
      */
-
     uint16 immutable countryNumber;
     bool private isActive;
     address private factoryContractAddress;
@@ -117,6 +130,14 @@ contract CountryInfo is Ownable {
             isActive = isActive_;
         }
     }
+
+    /**
+     * @dev :  This function allows to buy plans, paying ether.
+     * @param startingTimestamp_ : Timestamp when the plan will start
+     * @param endingTimestamp_ : Timestamp when the plan will end
+     * @param plan_ : Plan used there
+     * @param encryptedPhoneNumber_ : Phone number where the data plan will be used
+     */
 
     function buyDataPlan(
         uint256 startingTimestamp_,
@@ -153,7 +174,7 @@ contract CountryInfo is Ownable {
         }
 
         Info memory info;
-        info.amountPaid += msg.value;
+        info.amountPaid = s_UserPlans[encryptedPhoneNumber_].amountPaid + msg.value;
         info.endingTimestamp = endingTimestamp_;
         info.planSelected = plan_;
         info.pricePerSecondOfPlan = pricePerSecondOfPlan;
@@ -175,6 +196,12 @@ contract CountryInfo is Ownable {
             encryptedPhoneNumber_, plan_, msg.value, pricePerSecondOfPlan, startingTimestamp_, endingTimestamp_
         );
     }
+
+    /**
+     * @dev Function that allows to extend plans 
+     * @param endingTimestamp_ : Timestamp when the plan will end
+     * @param encryptedPhoneNumber_ : Phone number where the data plan will be used
+     */
 
     function extendPlan(bytes32 encryptedPhoneNumber_, uint256 endingTimestamp_) external payable isContractActive {
         Info memory aux = s_UserPlans[encryptedPhoneNumber_];
@@ -211,15 +238,32 @@ contract CountryInfo is Ownable {
         emit CountryInfo_PlanExtended(encryptedPhoneNumber_, oldtimestamp, aux.endingTimestamp);
     }
 
+    /**
+     * @dev Function that allows to upgrade a plan into another one in the middle of the usage of another
+     * @param newPlan_ : Plan that the user will be upgraded to
+     * @param encryptedPhoneNumber_ : Phone number where the data plan will be used
+     */
+
     function upgradePlan(bytes32 encryptedPhoneNumber_, uint16 newPlan_) external payable isContractActive {
         Info memory aux = s_UserPlans[encryptedPhoneNumber_];
 
-        if (msg.sender != factoryContractAddress) {
+        /**
+         * @dev : Uncomment if going to be used. For testing purposes
+         * has been disbled. In real life the factory contract should check 
+         * that msg.sender is the owner of the number wanted to be cancelled,
+         * not any other user
+         * 
+         * if (msg.sender != factoryContractAddress) {
             revert CountryInfo__SenderMustBeCountryFactory();
-        }
+        } 
+         */
 
         if (aux.amountPaid == 0) {
             revert CountryInfo__NeverBoughtAPlanBefore();
+        }
+
+        if (aux.startingTimestamp > block.timestamp) {
+            revert CountryInfo__InvalidStartingTimestamp();
         }
 
         if (aux.endingTimestamp <= block.timestamp) {
@@ -270,18 +314,35 @@ contract CountryInfo is Ownable {
         }
     }
 
-    function cancelPlan(bytes32 encryptedPhoneNumber_, address user_) external isContractActive{
-        if (msg.sender != factoryContractAddress) {
+    /**
+     * @dev Function used to cancel the current plan. A fee is deducted from the total money returned, and varies depending
+     * if the plan was currently being used or did not start yet
+     * @param encryptedPhoneNumber_ Phone which plan will be cancelled
+     * @param user_ address of the return
+     */
+
+    function cancelPlan(bytes32 encryptedPhoneNumber_, address user_) external isContractActive {
+        
+        /**
+         * @dev : Uncomment if going to be used. For testing purposes
+         * has been disbled. In real life the factory contract should check 
+         * that msg.sender is the owner of the number wanted to be cancelled,
+         * not any other user. IF USED WITHOUT THIS CHECK THE FUNCTION
+         * WOULD BE EASILY EXPLOITABLE
+         * 
+         * if (msg.sender != factoryContractAddress) {
             revert CountryInfo__SenderMustBeCountryFactory();
-        }
+        } 
+         */
+
+        
         Info memory aux = s_UserPlans[encryptedPhoneNumber_];
         if (aux.endingTimestamp <= block.timestamp) {
             revert CountryInfo__InvalidEndingTimestamp();
         }
-        uint256 moneyToCancel = aux.amountPaid;
+        uint256 moneyToCancel = aux.pricePerSecondOfPlan * (aux.endingTimestamp - block.timestamp) + aux.extraMoneyPaid;
         uint256 feeUsed = feeOnCancel;
         if (aux.startingTimestamp <= block.timestamp) {
-            moneyToCancel = aux.pricePerSecondOfPlan * (aux.endingTimestamp - block.timestamp) + aux.extraMoneyPaid;
             feeUsed = feeOnCancel * feeOnCancelMultiplier;
         }
 
@@ -296,7 +357,12 @@ contract CountryInfo is Ownable {
         }
     }
 
-    function endPlanOwner(bytes32 encryptedPhoneNumber_) external onlyOwner{
+    /**
+     @dev Function used to send the money from a plan into the fees when the plan ends and resets some values
+     * @param encryptedPhoneNumber_ Phone which plan will be ended
+     */
+
+    function endPlanOwner(bytes32 encryptedPhoneNumber_) external onlyOwner {
         Info memory aux = s_UserPlans[encryptedPhoneNumber_];
         if (aux.endingTimestamp == 0 || aux.endingTimestamp > block.timestamp) {
             revert CountryInfo__InvalidEndingTimestamp();
@@ -307,11 +373,22 @@ contract CountryInfo is Ownable {
         s_UserPlans[encryptedPhoneNumber_] = aux;
     }
 
-    function modifyPlan(uint16 plan_, uint256 pricePerSecond_) external onlyOwner {
-        s_DataPlans[plan_] = pricePerSecond_;
-        emit CountryInfo_ModifyPlan(plan_, pricePerSecond_);
+    /**
+     * @dev This function Allows to modify the price of plans
+     * @param plans_ Number of the plans having to be modified
+     * @param pricesPerSecond_ New prices for every modified plans
+     */
 
+    function modifyPlans(uint16[] memory plans_, uint256[] memory pricesPerSecond_) external onlyOwner {
+        if (plans_.length != pricesPerSecond_.length) {
+            revert CountryInfo__LengthOfArraysDiffer();
+        }
+        for (uint256 i = 0; i < pricesPerSecond_.length; i++) {
+            s_DataPlans[plans_[i]] = pricesPerSecond_[i];
+            emit CountryInfo_ModifyPlan(plans_[i], pricesPerSecond_[i]);
+        }
     }
+
 
     //////////////
     ///SETTERS////
@@ -337,6 +414,10 @@ contract CountryInfo is Ownable {
     ///GETTERS////
     //////////////
 
+    function getFeesCollected() external view returns (uint256) {
+        return feesCollected;
+    }
+
     function getIsActive() external view returns (bool) {
         return isActive;
     }
@@ -361,7 +442,19 @@ contract CountryInfo is Ownable {
         return s_DataPlans[plan_];
     }
 
-    function getUserPlan(bytes32 encryptedPhoneNumber_) external view returns (Info memory) {
-        return s_UserPlans[encryptedPhoneNumber_];
+    function getUserPlan(bytes32 encryptedPhoneNumber_)
+        external
+        view
+        returns (uint256, uint256, uint16, uint256, uint256, uint256)
+    {
+        Info memory aux = s_UserPlans[encryptedPhoneNumber_];
+        return (
+            aux.startingTimestamp,
+            aux.endingTimestamp,
+            aux.planSelected,
+            aux.pricePerSecondOfPlan,
+            aux.amountPaid,
+            aux.extraMoneyPaid
+        );
     }
 }
